@@ -1,0 +1,50 @@
+UPDATING YOUR GITHUB REPO + DEPLOYING WITH SURGE
+=================================================
+
+PART A - UPDATE GITHUB (get the latest code in your repo)
+----------------------------------------------------------
+Your repo: https://github.com/adam13131313/308
+
+Easiest (via GitHub website, no command line):
+1. Go to your repo on github.com
+2. For each file (index.html, manifest.json, service-worker.js,
+   README.md, the two icons), click the file, click the pencil/edit
+   or "Upload files", and replace with the new version from this folder.
+   OR: click "Add file" -> "Upload files" and drag ALL files from this
+   folder in at once, then "Commit changes". This overwrites old ones.
+
+Via command line (if you have git set up):
+   cd path/to/your/local/308
+   # copy the new files in over the old ones, then:
+   git add .
+   git commit -m "Update dashboard: detail view, session detail, 3:08:59 target"
+   git push
+
+
+PART B - DEPLOY WITH SURGE
+--------------------------
+One-time setup:
+   npm install -g surge        # needs Node.js installed
+
+Deploy:
+   cd marathon-pwa             # this folder
+   surge                       # first run: creates account with your email
+                               # pick a domain, e.g. adam-308.surge.sh
+
+Redeploy after any change (same URL every time):
+   surge . adam-308.surge.sh
+   (or just run ./deploy.sh which has this baked in)
+
+Surge has NO deploy limit like Netlify Drop, and you keep the same URL,
+so your phone home-screen icon keeps working after every update.
+
+
+PART C (OPTIONAL) - AUTO-DEPLOY ON GIT PUSH
+-------------------------------------------
+The included .github/workflows/deploy.yml will auto-deploy to Surge
+every time you push to GitHub. To enable it:
+1. Run `surge token` locally to get your Surge token
+2. In your GitHub repo: Settings -> Secrets and variables -> Actions
+   -> New repository secret. Name: SURGE_TOKEN, value: your token
+3. Push to the repo. From then on, every push auto-deploys.
+Now your workflow is: edit -> git push -> live automatically.

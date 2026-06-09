@@ -25,6 +25,14 @@
   .nav .export-btn { margin-left: auto; background: #1a2f1a; color: #3ddc84; }
   .toast { position: fixed; bottom: calc(20px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); background: #3ddc84; color: #0a0e14; padding: 10px 18px; border-radius: 20px; font-size: 12px; font-weight: 700; z-index: 30; box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
   .export-modal textarea { width: 100%; height: 240px; background: #0a0e14; border: 1px solid #1a1f2b; border-radius: 4px; color: #c5cdd8; font-family: inherit; font-size: 10px; padding: 8px; resize: none; margin-bottom: 8px; }
+  .detail-modal { position: fixed; bottom: 0; left: 0; right: 0; background: #10141c; border-top: 2px solid #3ddc84; padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); z-index: 20; }
+  .detail-date { font-size: 13px; color: #7d8590; margin-bottom: 2px; }
+  .detail-dist { font-size: 38px; font-weight: 700; color: #3ddc84; line-height: 1.1; }
+  .detail-grid { display: flex; gap: 20px; margin: 14px 0; }
+  .detail-stat-label { font-size: 11px; color: #3d4556; text-transform: uppercase; letter-spacing: 0.5px; }
+  .detail-stat-val { font-size: 22px; font-weight: 700; margin-top: 2px; }
+  .detail-section { font-size: 13px; color: #8b949e; padding: 8px 0; border-top: 1px solid #1a1f2b; line-height: 1.5; }
+  .detail-label { font-size: 11px; color: #3d4556; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
   .stats { display: flex; gap: 1px; padding: 0 16px; margin: 12px 0; }
   .stat { flex: 1; background: #10141c; padding: 8px 4px; border-radius: 4px; text-align: center; }
   .stat-label { font-size: 7px; color: #3d4556; letter-spacing: 0.3px; }
@@ -129,6 +137,7 @@ var runs = {};
 var view = "plan";
 var openWeek = null;
 var logDate = null;
+var detailDate = null;
 
 function loadRuns() {
   var stored = {};
@@ -217,6 +226,7 @@ function render() {
   h += '</div>';
 
   if (logDate) h += renderModal();
+  if (detailDate) h += renderDetail();
 
   document.getElementById("app").innerHTML = h;
 }
@@ -263,8 +273,11 @@ function renderPlan(cw) {
           var sec = paceToSec(run.pace);
           if (sec!==null && sec<310) tooFast = true;
         }
-        var dcls = "day" + (run?" run":"") + (tooFast?" fast":"") + (isRest&&!run?" rest":"") + ((!isRest&&!isRace&&!run)?" loggable":"");
-        var clickAttr = (!isRest&&!isRace&&!run) ? ' onclick="openLog(event,\''+dk+'\')"' : '';
+        var dcls = "day" + (run?" run":"") + (tooFast?" fast":"") + (isRest&&!run?" rest":"") + ((!isRest)?" loggable":"");
+        var clickAttr = "";
+        if (!isRest) {
+          clickAttr = ' onclick="openDetail(event,\''+dk+'\')"';
+        }
         h += '<div class="'+dcls+'"'+clickAttr+'>';
         h += '<span style="font-size:9px;color:#3d4556;font-weight:700;min-width:24px;align-self:flex-start;padding-top:1px">'+DAY_NAMES[di]+'</span>';
         h += '<span style="flex:1">';
@@ -389,9 +402,72 @@ function renderModal() {
 }
 
 // ============ ACTIONS ============
+function renderDetail() {
+  var run = runs[detailDate];
+  var d = new Date(detailDate+"T00:00:00");
+  var monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var dayName = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][d.getDay()];
+  var dateLabel = dayName + ", " + d.getDate() + " " + monthNames[d.getMonth()] + " " + d.getFullYear();
+
+  // find week + planned session
+  var wkNum = "", session = "", detail = "", phaseColor = "#3ddc84";
+  for (var wi=0; wi<18; wi++){
+    for (var di=0; di<7; di++){
+      if (dateKey(wi,di)===detailDate){
+        wkNum = "Week " + PLAN_DATA[wi].week + " - " + PLAN_DATA[wi].phase;
+        session = PLAN_DATA[wi].sessions[di][0];
+        detail = PLAN_DATA[wi].sessions[di][1];
+        var ps = PHASE[PLAN_DATA[wi].phase];
+        if (ps) phaseColor = ps.c;
+      }
+    }
+  }
+
+  var tooFast = false;
+  if (run && run.pace && isEasy(session)) {
+    var sec = paceToSec(run.pace);
+    if (sec!==null && sec<310) tooFast = true;
+  }
+
+  var h = '<div class="modal-bg" onclick="closeDetail()"></div>';
+  h += '<div class="detail-modal">';
+  h += '<div class="detail-date">'+dateLabel+'</div>';
+  h += '<div style="font-size:10px;color:#3d4556;margin-bottom:10px">'+wkNum+'</div>';
+
+  if (run) {
+    // ---- COMPLETED RUN ----
+    h += '<div class="detail-dist" style="color:'+(tooFast?"#ff9100":"#3ddc84")+'">'+run.km+' km</div>';
+    if (tooFast) h += '<div style="font-size:11px;color:#ff9100;margin-top:4px">FLAGGED: faster than easy target (under 5:10/km)</div>';
+    h += '<div class="detail-grid">';
+    if (run.pace) h += '<div><div class="detail-stat-label">Pace</div><div class="detail-stat-val" style="color:#c5cdd8">'+run.pace+'<span style="font-size:12px;color:#3d4556">/km</span></div></div>';
+    if (run.hr) h += '<div><div class="detail-stat-label">Avg HR</div><div class="detail-stat-val" style="color:#4a9eff">'+run.hr+'</div></div>';
+    h += '</div>';
+    if (session) {
+      h += '<div class="detail-section"><div class="detail-label">Planned</div>'+esc(session);
+      if (detail) h += '<div style="font-size:12px;color:#5a6577;margin-top:3px">'+esc(detail)+'</div>';
+      h += '</div>';
+    }
+    if (run.note) h += '<div class="detail-section"><div class="detail-label">Notes</div>'+esc(run.note)+'</div>';
+    h += '<div class="modal-row" style="margin-top:14px"><button class="btn-save" onclick="editFromDetail()">Edit</button><button class="btn-cancel" onclick="closeDetail()">Close</button></div>';
+  } else {
+    // ---- PLANNED SESSION (not yet run) ----
+    h += '<div class="detail-label">Today\'s session</div>';
+    h += '<div style="font-size:26px;font-weight:700;color:'+phaseColor+';line-height:1.2;margin:4px 0 10px">'+esc(session)+'</div>';
+    if (detail) {
+      h += '<div class="detail-section" style="border-top:none;font-size:15px;color:#c5cdd8;padding-top:0">'+esc(detail)+'</div>';
+    }
+    h += '<div class="modal-row" style="margin-top:18px"><button class="btn-save" onclick="editFromDetail()">Log this run</button><button class="btn-cancel" onclick="closeDetail()">Close</button></div>';
+  }
+  h += '</div>';
+  return h;
+}
+
 function setView(v){ view=v; render(); }
 function toggleWeek(wi){ openWeek = (openWeek===wi)?null:wi; render(); }
 function openLog(e, dk){ e.stopPropagation(); logDate=dk; render(); var el=document.getElementById("f-km"); if(el)el.focus(); }
+function openDetail(e, dk){ e.stopPropagation(); detailDate=dk; render(); }
+function closeDetail(){ detailDate=null; render(); }
+function editFromDetail(){ var dk=detailDate; detailDate=null; logDate=dk; render(); var el=document.getElementById("f-km"); if(el)el.focus(); }
 function closeLog(){ logDate=null; render(); }
 function saveLog(){
   var km = parseFloat(document.getElementById("f-km").value);
