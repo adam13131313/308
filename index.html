@@ -372,14 +372,15 @@ function renderDetail() {
 }
 
 function renderDataPanel() {
-  var backup = JSON.stringify({ runs: runs, metrics: metrics });
   var h = '<div class="modal-bg" onclick="closeData()"></div><div class="modal">';
   h += '<div style="font-size:11px;font-weight:700;margin-bottom:8px">Data</div>';
   h += '<div style="font-size:9px;color:#3d4556;margin-bottom:4px">EXPORT for Claude (paste into chat)</div>';
-  h += '<button class="btn-save" style="margin-bottom:10px" onclick="exportSummary()">Copy summary for Claude</button>';
-  h += '<div style="font-size:9px;color:#3d4556;margin-bottom:4px">BACKUP / RESTORE (JSON)</div>';
-  h += '<textarea class="data-box" id="data-json" placeholder="Paste JSON here to import, or copy the text below to back up">'+esc(backup)+'</textarea>';
-  h += '<div class="modal-row"><button class="btn-save" onclick="importJson()">Import pasted JSON</button><button class="btn-cancel" onclick="copyBackup()">Copy backup</button><button class="btn-cancel" onclick="closeData()">Close</button></div>';
+  h += '<button class="btn-save" style="margin-bottom:12px" onclick="exportSummary()">Copy summary for Claude</button>';
+  h += '<div style="font-size:9px;color:#3d4556;margin-bottom:4px">BACKUP all data</div>';
+  h += '<button class="btn-cancel" style="width:100%;margin-bottom:12px" onclick="copyBackup()">Copy backup to clipboard</button>';
+  h += '<div style="font-size:9px;color:#3d4556;margin-bottom:4px">IMPORT / RESTORE (paste JSON below)</div>';
+  h += '<textarea class="data-box" id="data-json" placeholder="Paste your seed-data.json or a backup here, then tap Import"></textarea>';
+  h += '<div class="modal-row"><button class="btn-save" onclick="importJson()">Import</button><button class="btn-cancel" onclick="closeData()">Close</button></div>';
   h += '</div>';
   return h;
 }
@@ -415,22 +416,31 @@ function addMetric(){
 function toggleData(){ dataPanel=!dataPanel; render(); }
 function closeData(){ dataPanel=false; render(); }
 function importJson(){
-  var txt=document.getElementById("data-json").value;
+  var txt=document.getElementById("data-json").value.trim();
+  if(!txt){ showToast("Paste your data first"); return; }
+  var obj=null;
   try {
-    var obj=JSON.parse(txt);
-    if(obj.runs) runs=obj.runs;
-    if(obj.metrics) metrics=obj.metrics;
-    saveRuns(); saveMetrics();
-    showToast("Imported!");
-    dataPanel=false; render();
-  } catch(e){ showToast("Invalid JSON"); }
+    obj=JSON.parse(txt);
+  } catch(e){
+    // Forgiving: if multiple JSON blocks got pasted, use the last complete one
+    var lastOpen=txt.lastIndexOf('{\n');
+    if(lastOpen<0) lastOpen=txt.indexOf('{', txt.indexOf('}')+1);
+    if(lastOpen>0){
+      try { obj=JSON.parse(txt.substring(lastOpen)); } catch(e2){ obj=null; }
+    }
+  }
+  if(!obj){ showToast("Invalid JSON - clear box & paste again"); return; }
+  if(obj.runs) runs=obj.runs;
+  if(obj.metrics) metrics=obj.metrics;
+  saveRuns(); saveMetrics();
+  showToast("Imported!");
+  dataPanel=false; render();
 }
 function copyBackup(){
-  var t=document.getElementById("data-json");
-  t.value=JSON.stringify({runs:runs,metrics:metrics});
-  t.select();
-  if(navigator.clipboard) navigator.clipboard.writeText(t.value).then(function(){showToast("Backup copied");}).catch(function(){try{document.execCommand("copy");showToast("Backup copied");}catch(e){}});
-  else { try{document.execCommand("copy");showToast("Backup copied");}catch(e){} }
+  var data=JSON.stringify({runs:runs,metrics:metrics});
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(data).then(function(){showToast("Backup copied");}).catch(function(){fallbackCopy(data);});
+  } else { fallbackCopy(data); }
 }
 
 function exportSummary(){

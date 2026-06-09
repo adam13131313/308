@@ -1,4 +1,4 @@
-var CACHE = "sydney-marathon-v2";
+var CACHE = "sydney-marathon-v3";
 var ASSETS = ["index.html", "manifest.json", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", function(e) {
