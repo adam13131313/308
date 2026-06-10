@@ -230,7 +230,7 @@ function renderPlan(cw) {
         var tooFast = false;
         if (run && run.pace && isEasy(sess)) { var sec=paceToSec(run.pace); if(sec!==null&&sec<310) tooFast=true; }
         var dcls = "day" + (run?" run":"") + (tooFast?" fast":"") + (isRest&&!run?" rest":"") + " loggable";
-        var clickAttr = ' onclick="openDetail(event,\'"+dk+"\')"';
+        var clickAttr = ' onclick="openDetail(event,\'' + dk + '\')"';
         h += '<div class="'+dcls+'"'+clickAttr+'>';
         h += '<span style="font-size:9px;color:#eef2f6;font-weight:700;min-width:24px;padding-top:1px">'+DAY_NAMES[di]+'</span>';
         h += '<span style="flex:1"><span style="font-size:9px;color:'+(isRest?"#d4dce6":"#eef2f6")+';display:block">'+esc(sess)+'</span>';
