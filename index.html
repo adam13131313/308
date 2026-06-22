@@ -61,8 +61,9 @@
   .detail-label { font-size: 11px; color: #eef2f6; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
   .day.missed { background:#1f0d0d; border-left-color:#ff4d4d; }
   .day.missed .sess-name { text-decoration: line-through; color:#ff8a8a; }
-  .day.rearranging { cursor: default; align-items: center; }
-  .drag-handle { touch-action: none; cursor: grab; color:#3ddc84; font-size:14px; padding:0 6px 0 0; user-select:none; -webkit-user-select:none; align-self:center; }
+  .day.rearranging { cursor: default; align-items: center; padding: 9px 8px; }
+  .day.rearranging.rest { opacity: 1; }
+  .drag-handle { display:inline-block; touch-action: none; cursor: grab; color:#0a0e14; background:#3ddc84; font-size:15px; line-height:1; letter-spacing:1px; padding:10px 11px; margin-right:9px; border-radius:6px; font-weight:700; user-select:none; -webkit-user-select:none; align-self:center; }
   .rearrange-bar { text-align:center; padding:9px; margin-bottom:8px; border-radius:5px; font-size:10px; font-weight:700; letter-spacing:0.5px; background:#142a1f; color:#3ddc84; border:1px solid #1e3a2a; }
   .rearrange-bar.off { background:#10141c; color:#9aa4b4; border:1px solid #1a1f2b; }
 </style>
@@ -263,7 +264,7 @@ function renderPlan(cw) {
         var attrs = ' data-cell data-w="'+wi+'" data-d="'+di+'"' + (isRace?' data-lock="1"':'');
         var clickAttr = rearrange ? '' : ' onclick="openDetail(event,\'' + dk + '\')"';
         h += '<div class="'+dcls+'"'+attrs+clickAttr+'>';
-        if (rearrange) h += '<span class="drag-handle"'+(isRace?' style="color:#3a4452"':' data-drag')+'>⠿</span>';
+        if (rearrange) h += '<span class="drag-handle"'+(isRace?' style="background:#1a1f2b;color:#3a4452"':' data-drag')+'>⠿</span>';
         h += '<span style="font-size:9px;color:#eef2f6;font-weight:700;min-width:24px;padding-top:1px">'+DAY_NAMES[di]+'</span>';
         h += '<span style="flex:1"><span class="sess-name" style="font-size:9px;color:'+(isRest?"#d4dce6":"#eef2f6")+';display:block">'+esc(sess)+'</span>';
         if (detail) h += '<span style="font-size:8px;color:'+(isRace?"#ff5c35":"#d4dce6")+';display:block;margin-top:1px">'+esc(detail)+'</span>';
