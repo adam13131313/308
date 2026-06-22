@@ -59,6 +59,12 @@
   .detail-stat-val { font-size: 22px; font-weight: 700; margin-top: 2px; }
   .detail-section { font-size: 13px; color: #eef2f6; padding: 8px 0; border-top: 1px solid #3a4452; line-height: 1.5; }
   .detail-label { font-size: 11px; color: #eef2f6; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .day.missed { background:#1f0d0d; border-left-color:#ff4d4d; }
+  .day.missed .sess-name { text-decoration: line-through; color:#ff8a8a; }
+  .day.rearranging { cursor: default; align-items: center; }
+  .drag-handle { touch-action: none; cursor: grab; color:#3ddc84; font-size:14px; padding:0 6px 0 0; user-select:none; -webkit-user-select:none; align-self:center; }
+  .rearrange-bar { text-align:center; padding:9px; margin-bottom:8px; border-radius:5px; font-size:10px; font-weight:700; letter-spacing:0.5px; background:#142a1f; color:#3ddc84; border:1px solid #1e3a2a; }
+  .rearrange-bar.off { background:#10141c; color:#9aa4b4; border:1px solid #1a1f2b; }
 </style>
 </head>
 <body>
@@ -98,6 +104,8 @@ var PHASE = {
 };
 var RUNS_KEY = "sydney-marathon-runs";
 var METRICS_KEY = "sydney-marathon-metrics";
+var PLAN_KEY = "sydney-marathon-plan";
+var MISSED_KEY = "sydney-marathon-missed";
 
 // ============================================================
 // STATE - personal data loaded from localStorage only
@@ -109,15 +117,27 @@ var openWeek = null;
 var logDate = null;
 var detailDate = null;
 var dataPanel = false;
+var planSessions = null;   // 18x7 grid of [name,detail] - user's arrangement, persisted
+var missed = {};           // keyed by date string -> true
+var rearrange = false;     // drag-to-reorder mode
 
+function clonePlan() { return PLAN_DATA.map(function(w){ return w.sessions.map(function(s){ return [s[0], s[1]]; }); }); }
+function getWeekSessions(wi) { return (planSessions && planSessions[wi]) ? planSessions[wi] : PLAN_DATA[wi].sessions; }
 function loadAll() {
   runs = {};
   metrics = [];
+  missed = {};
+  planSessions = null;
   try { var r = localStorage.getItem(RUNS_KEY); if (r) runs = JSON.parse(r); } catch(e) {}
   try { var m = localStorage.getItem(METRICS_KEY); if (m) metrics = JSON.parse(m); } catch(e) {}
+  try { var ms = localStorage.getItem(MISSED_KEY); if (ms) missed = JSON.parse(ms); } catch(e) {}
+  try { var p = localStorage.getItem(PLAN_KEY); if (p) { var pp = JSON.parse(p); if (Array.isArray(pp) && pp.length === PLAN_DATA.length) planSessions = pp; } } catch(e) {}
+  if (!planSessions) planSessions = clonePlan();
 }
 function saveRuns() { try { localStorage.setItem(RUNS_KEY, JSON.stringify(runs)); } catch(e) {} }
 function saveMetrics() { try { localStorage.setItem(METRICS_KEY, JSON.stringify(metrics)); } catch(e) {} }
+function saveMissed() { try { localStorage.setItem(MISSED_KEY, JSON.stringify(missed)); } catch(e) {} }
+function savePlan() { try { localStorage.setItem(PLAN_KEY, JSON.stringify(planSessions)); } catch(e) {} }
 
 // ============================================================
 // HELPERS
@@ -198,16 +218,20 @@ function render() {
 
 function renderPlan(cw) {
   var h = '';
+  h += '<div class="rearrange-bar'+(rearrange?'':' off')+'" onclick="toggleRearrange()">'
+     + (rearrange ? '✓ DONE — drag the ⠿ handle to swap any two days (across weeks too)' : '↕ REARRANGE SCHEDULE')
+     + '</div>';
   PLAN_DATA.forEach(function(wk, wi){
     var st = weekKm(wi);
     var pct = st.km>0 ? Math.round(st.km/wk.planned*100) : 0;
     var ps = PHASE[wk.phase] || PHASE.Base;
     var pctColor = pct>=95?"#3ddc84":pct>=80?"#ff9100":"#ff5c35";
-    var isOpen = openWeek===wi;
+    var isOpen = rearrange ? true : (openWeek===wi);
     var isCur = wi===cw;
     var cls = "week-head" + (isOpen?" open":"") + (isCur&&!isOpen?" current":"");
     var border = isOpen ? "border-color:"+ps.c+"44;" : "";
-    h += '<div class="'+cls+'" style="'+border+'" onclick="toggleWeek('+wi+')">';
+    var headClick = rearrange ? '' : ' onclick="toggleWeek('+wi+')"';
+    h += '<div class="'+cls+'" style="'+border+'"'+headClick+'>';
     h += '<span style="color:'+(isCur?ps.c:"#eef2f6")+';font-size:10px;min-width:24px;font-weight:700">W'+wk.week+'</span>';
     h += '<span class="phase-tag" style="background:'+ps.bg+';color:'+ps.c+'">'+wk.phase+'</span>';
     if (isCur) h += '<span style="font-size:8px;color:'+ps.c+'">NOW</span>';
@@ -219,24 +243,30 @@ function renderPlan(cw) {
     } else {
       h += '<span style="font-size:10px;color:#d4dce6">'+wk.planned+'km</span>';
     }
-    h += '<span style="font-size:10px;color:#eef2f6;margin-left:4px">'+(isOpen?"&minus;":"+")+'</span>';
+    if (!rearrange) h += '<span style="font-size:10px;color:#eef2f6;margin-left:4px">'+(isOpen?"&minus;":"+")+'</span>';
     h += '</div>';
     if (isOpen) {
       h += '<div class="week-body" style="border:1px solid '+ps.c+'44;border-top:none">';
       h += '<div style="font-size:8px;color:#eef2f6;margin-bottom:6px">'+wk.dates+'</div>';
-      wk.sessions.forEach(function(sessArr, di){
+      var wkMissed = 0;
+      getWeekSessions(wi).forEach(function(sessArr, di){
         var sess = sessArr[0], detail = sessArr[1];
         var dk = dateKey(wi, di);
         var run = runs[dk];
         var isRest = sess==="Rest";
+        var isRace = sess==="RACE DAY!";
+        var isMissed = !run && !isRest && !!missed[dk];
+        if (isMissed) wkMissed++;
         var tooFast = false;
         if (run && run.pace && isEasy(sess)) { var sec=paceToSec(run.pace); if(sec!==null&&sec<310) tooFast=true; }
-        var dcls = "day" + (run?" run":"") + (tooFast?" fast":"") + (isRest&&!run?" rest":"") + " loggable";
-        var clickAttr = ' onclick="openDetail(event,\'' + dk + '\')"';
-        h += '<div class="'+dcls+'"'+clickAttr+'>';
+        var dcls = "day" + (run?" run":"") + (tooFast?" fast":"") + (isMissed?" missed":"") + (isRest&&!run?" rest":"") + (rearrange?" rearranging":" loggable");
+        var attrs = ' data-cell data-w="'+wi+'" data-d="'+di+'"' + (isRace?' data-lock="1"':'');
+        var clickAttr = rearrange ? '' : ' onclick="openDetail(event,\'' + dk + '\')"';
+        h += '<div class="'+dcls+'"'+attrs+clickAttr+'>';
+        if (rearrange) h += '<span class="drag-handle"'+(isRace?' style="color:#3a4452"':' data-drag')+'>⠿</span>';
         h += '<span style="font-size:9px;color:#eef2f6;font-weight:700;min-width:24px;padding-top:1px">'+DAY_NAMES[di]+'</span>';
-        h += '<span style="flex:1"><span style="font-size:9px;color:'+(isRest?"#d4dce6":"#eef2f6")+';display:block">'+esc(sess)+'</span>';
-        if (detail) h += '<span style="font-size:8px;color:'+(sess==="RACE DAY!"?"#ff5c35":"#d4dce6")+';display:block;margin-top:1px">'+esc(detail)+'</span>';
+        h += '<span style="flex:1"><span class="sess-name" style="font-size:9px;color:'+(isRest?"#d4dce6":"#eef2f6")+';display:block">'+esc(sess)+'</span>';
+        if (detail) h += '<span style="font-size:8px;color:'+(isRace?"#ff5c35":"#d4dce6")+';display:block;margin-top:1px">'+esc(detail)+'</span>';
         h += '</span>';
         if (run) {
           h += '<span style="display:flex;align-items:center;gap:5px;padding-top:1px">';
@@ -245,12 +275,17 @@ function renderPlan(cw) {
           if (run.pace) h += '<span style="font-size:8px;color:#eef2f6">'+run.pace+'</span>';
           if (run.hr) h += '<span style="font-size:8px;color:#4a9eff">HR'+run.hr+'</span>';
           h += '</span>';
-        } else {
+        } else if (isMissed) {
+          h += '<span style="font-size:8px;color:#ff4d4d;font-weight:700;padding-top:1px">MISSED</span>';
+        } else if (!rearrange) {
           h += '<span style="font-size:8px;color:#d4dce6;padding-top:1px">+ log</span>';
         }
         h += '</div>';
       });
-      if (st.km>0) h += '<div style="margin-top:6px;padding:4px 6px;font-size:9px;color:#eef2f6;border-top:1px solid '+ps.c+'22">'+st.n+' runs · '+st.km+'km of '+wk.planned+'km · '+pct+'%</div>';
+      var sumBits = [];
+      if (st.km>0) sumBits.push(st.n+' runs · '+st.km+'km of '+wk.planned+'km · '+pct+'%');
+      if (wkMissed>0) sumBits.push('<span style="color:#ff4d4d">'+wkMissed+' missed</span>');
+      if (sumBits.length) h += '<div style="margin-top:6px;padding:4px 6px;font-size:9px;color:#eef2f6;border-top:1px solid '+ps.c+'22">'+sumBits.join(' · ')+'</div>';
       h += '</div>';
     }
   });
@@ -352,12 +387,13 @@ function renderDetail() {
   var monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   var dateLabel = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][d.getDay()] + ", " + d.getDate() + " " + monthNames[d.getMonth()] + " " + d.getFullYear();
   var wkNum="", session="", detail="", phaseColor="#3ddc84";
-  for (var wi=0; wi<18; wi++){ for (var di=0; di<7; di++){ if (dateKey(wi,di)===detailDate){ wkNum="Week "+PLAN_DATA[wi].week+" - "+PLAN_DATA[wi].phase; session=PLAN_DATA[wi].sessions[di][0]; detail=PLAN_DATA[wi].sessions[di][1]; var ps=PHASE[PLAN_DATA[wi].phase]; if(ps)phaseColor=ps.c; } } }
+  for (var wi=0; wi<18; wi++){ for (var di=0; di<7; di++){ if (dateKey(wi,di)===detailDate){ wkNum="Week "+PLAN_DATA[wi].week+" - "+PLAN_DATA[wi].phase; session=getWeekSessions(wi)[di][0]; detail=getWeekSessions(wi)[di][1]; var ps=PHASE[PLAN_DATA[wi].phase]; if(ps)phaseColor=ps.c; } } }
   var tooFast=false;
   if (run && run.pace && isEasy(session)) { var sec=paceToSec(run.pace); if(sec!==null&&sec<310) tooFast=true; }
 
   var h = '<div class="modal-bg" onclick="closeDetail()"></div><div class="detail-modal">';
   h += '<div class="detail-date">'+dateLabel+'</div><div style="font-size:10px;color:#eef2f6;margin-bottom:10px">'+wkNum+'</div>';
+  if (!run && missed[detailDate]) h += '<div style="font-size:11px;color:#ff4d4d;font-weight:700;margin:-4px 0 10px">⚠ MISSED — session not completed</div>';
   if (run) {
     h += '<div class="detail-dist" style="color:'+(tooFast?"#ff9100":"#3ddc84")+'">'+run.km+' km</div>';
     if (tooFast) h += '<div style="font-size:11px;color:#ff9100;margin-top:4px">FLAGGED: faster than easy target (under 5:10/km)</div>';
@@ -371,7 +407,10 @@ function renderDetail() {
   } else {
     h += '<div class="detail-label">Session</div><div style="font-size:26px;font-weight:700;color:'+phaseColor+';line-height:1.2;margin:4px 0 10px">'+esc(session)+'</div>';
     if (detail) h += '<div class="detail-section" style="border-top:none;font-size:15px;color:#ffffff;padding-top:0">'+esc(detail)+'</div>';
-    h += '<div class="modal-row" style="margin-top:18px"><button class="btn-save" onclick="editFromDetail()">Log this run</button><button class="btn-cancel" onclick="closeDetail()">Close</button></div>';
+    var canMiss = session && session!=="Rest" && session!=="RACE DAY!";
+    h += '<div class="modal-row" style="margin-top:18px"><button class="btn-save" onclick="editFromDetail()">Log this run</button>';
+    if (canMiss) h += missed[detailDate] ? '<button class="btn-cancel" onclick="unmarkMissed()">Unmark</button>' : '<button class="btn-del" onclick="markMissed()">Mark missed</button>';
+    h += '<button class="btn-cancel" onclick="closeDetail()">Close</button></div>';
   }
   h += '</div>';
   return h;
@@ -387,6 +426,8 @@ function renderDataPanel() {
   h += '<div style="font-size:9px;color:#eef2f6;margin-bottom:4px">IMPORT / RESTORE (paste JSON below)</div>';
   h += '<textarea class="data-box" id="data-json" placeholder="Paste your seed-data.json or a backup here, then tap Import"></textarea>';
   h += '<div class="modal-row"><button class="btn-save" onclick="importJson()">Import</button><button class="btn-cancel" onclick="closeData()">Close</button></div>';
+  h += '<div style="font-size:9px;color:#eef2f6;margin:12px 0 4px">SCHEDULE</div>';
+  h += '<button class="btn-cancel" style="width:100%" onclick="resetPlan()">Reset schedule to default order</button>';
   h += '</div>';
   return h;
 }
@@ -405,9 +446,72 @@ function saveLog(){
   var km=parseFloat(document.getElementById("f-km").value);
   if(!km){ closeLog(); return; }
   runs[logDate]={ km:km, pace:document.getElementById("f-pace").value, hr:document.getElementById("f-hr").value?parseInt(document.getElementById("f-hr").value):null, note:document.getElementById("f-note").value };
+  if (missed[logDate]) { delete missed[logDate]; saveMissed(); }
   saveRuns(); logDate=null; render();
 }
 function deleteRun(){ if(runs[logDate]){ delete runs[logDate]; saveRuns(); } logDate=null; render(); }
+
+function toggleRearrange(){ rearrange=!rearrange; logDate=null; detailDate=null; dataPanel=false; render(); }
+function markMissed(){ if(detailDate){ missed[detailDate]=true; saveMissed(); } render(); }
+function unmarkMissed(){ if(detailDate){ delete missed[detailDate]; saveMissed(); } render(); }
+function resetPlan(){
+  if(!confirm("Reset all schedule rearrangements back to the default plan?\n\nYour logged runs and missed flags are NOT affected.")) return;
+  planSessions=clonePlan(); savePlan(); dataPanel=false; showToast("Schedule reset to default"); render();
+}
+
+// ---- drag to rearrange: swaps the contents of two day cells (any weeks) ----
+var drag=null;
+function cellFromPoint(x,y){
+  var el=document.elementFromPoint(x,y);
+  while(el && el!==document.body){
+    if(el.dataset && typeof el.dataset.w!=="undefined" && typeof el.dataset.d!=="undefined") return el;
+    el=el.parentNode;
+  }
+  return null;
+}
+function onPointerDown(e){
+  if(!rearrange || !e.target.closest) return;
+  var hd=e.target.closest('[data-drag]'); if(!hd) return;
+  var cell=hd.closest('[data-cell]'); if(!cell || cell.dataset.lock==="1") return;
+  e.preventDefault();
+  var rect=cell.getBoundingClientRect();
+  drag={ fromW:+cell.dataset.w, fromD:+cell.dataset.d, src:cell, target:null, offY:e.clientY-rect.top };
+  var clone=cell.cloneNode(true);
+  clone.style.cssText='position:fixed;left:'+rect.left+'px;width:'+rect.width+'px;top:'+(e.clientY-drag.offY)+'px;z-index:50;opacity:0.95;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,0.65);background:#142a1f;border-radius:4px;';
+  drag.clone=clone; document.body.appendChild(clone);
+  cell.style.opacity='0.25';
+  document.addEventListener('pointermove', onPointerMove, {passive:false});
+  document.addEventListener('pointerup', onPointerUp);
+  document.addEventListener('pointercancel', onPointerUp);
+}
+function onPointerMove(e){
+  if(!drag) return;
+  e.preventDefault();
+  drag.clone.style.top=(e.clientY-drag.offY)+'px';
+  var vh=window.innerHeight;
+  if(e.clientY<110) window.scrollBy(0,-14);
+  else if(e.clientY>vh-90) window.scrollBy(0,14);
+  if(drag.target) drag.target.style.outline='';
+  var t=cellFromPoint(e.clientX,e.clientY);
+  if(t && t!==drag.src && t.dataset.lock!=="1"){ t.style.outline='2px solid #3ddc84'; t.style.outlineOffset='-1px'; drag.target=t; }
+  else drag.target=null;
+}
+function onPointerUp(){
+  if(!drag) return;
+  document.removeEventListener('pointermove', onPointerMove);
+  document.removeEventListener('pointerup', onPointerUp);
+  document.removeEventListener('pointercancel', onPointerUp);
+  if(drag.clone) drag.clone.remove();
+  var t=drag.target;
+  if(t){
+    var tw=+t.dataset.w, td=+t.dataset.d;
+    var a=planSessions[drag.fromW][drag.fromD];
+    planSessions[drag.fromW][drag.fromD]=planSessions[tw][td];
+    planSessions[tw][td]=a;
+    savePlan();
+  }
+  drag=null; render();
+}
 
 function weekFromDate(dateStr){
   var d = new Date(dateStr+"T00:00:00");
@@ -451,12 +555,14 @@ function importJson(){
   if(!obj){ showToast("Invalid JSON - clear box & paste again"); return; }
   if(obj.runs) runs=obj.runs;
   if(obj.metrics) metrics=obj.metrics;
-  saveRuns(); saveMetrics();
+  if(obj.missed) missed=obj.missed;
+  if(obj.plan && Array.isArray(obj.plan) && obj.plan.length===PLAN_DATA.length) planSessions=obj.plan;
+  saveRuns(); saveMetrics(); saveMissed(); savePlan();
   showToast("Imported!");
   dataPanel=false; render();
 }
 function copyBackup(){
-  var data=JSON.stringify({runs:runs,metrics:metrics});
+  var data=JSON.stringify({runs:runs,metrics:metrics,plan:planSessions,missed:missed});
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(data).then(function(){showToast("Backup copied");}).catch(function(){fallbackCopy(data);});
   } else { fallbackCopy(data); }
@@ -477,7 +583,7 @@ function exportSummary(){
   Object.keys(runs).sort().forEach(function(key){
     var r=runs[key]; if(!r.km) return;
     var wkNum="",session="",dayName="";
-    for(var wi=0;wi<18;wi++){for(var di=0;di<7;di++){if(dateKey(wi,di)===key){wkNum="W"+PLAN_DATA[wi].week;session=PLAN_DATA[wi].sessions[di][0];dayName=DAY_NAMES[di];}}}
+    for(var wi=0;wi<18;wi++){for(var di=0;di<7;di++){if(dateKey(wi,di)===key){wkNum="W"+PLAN_DATA[wi].week;session=getWeekSessions(wi)[di][0];dayName=DAY_NAMES[di];}}}
     var d=new Date(key+"T00:00:00");
     var line=dayName+" "+("0"+d.getDate()).slice(-2)+" "+mn[d.getMonth()]+" ("+wkNum+"): "+r.km+"km";
     if(r.pace) line+=" @ "+r.pace;
@@ -486,6 +592,16 @@ function exportSummary(){
     if(r.note) line+=" - "+r.note;
     out+=line+"\n";
   });
+  var missList=Object.keys(missed).filter(function(k){ return missed[k] && !(runs[k]&&runs[k].km); }).sort();
+  if(missList.length){
+    out+="------------------------------------\nMISSED SESSIONS:\n";
+    missList.forEach(function(key){
+      var s="",dn="";
+      for(var wi=0;wi<18;wi++){for(var di=0;di<7;di++){if(dateKey(wi,di)===key){s=getWeekSessions(wi)[di][0];dn=DAY_NAMES[di];}}}
+      var d=new Date(key+"T00:00:00");
+      out+=dn+" "+("0"+d.getDate()).slice(-2)+" "+mn[d.getMonth()]+": "+s+"\n";
+    });
+  }
   out+="------------------------------------\nPaste to Claude to sync + analyse.";
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(out).then(function(){showToast("Copied! Paste into Claude");}).catch(function(){fallbackCopy(out);});
@@ -507,6 +623,7 @@ function showToast(msg){
 // ============================================================
 loadAll();
 render();
+document.addEventListener('pointerdown', onPointerDown);
 if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js").catch(function(){}); }
 </script>
 </body>
