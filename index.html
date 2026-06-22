@@ -185,7 +185,7 @@ function render() {
   h += '<div class="header">';
   h += '<div class="title">SYDNEY <span style="color:#ff5c35">3:08:59</span> <span style="font-size:10px;color:#eef2f6;font-weight:400">30 AUG 2026</span></div>';
   h += '<div class="nav">';
-  ["plan","chart","metrics"].forEach(function(v){
+  ["plan","chart","metrics","kb"].forEach(function(v){
     h += '<button class="'+(view===v?'active':'')+'" onclick="setView(\''+v+'\')">'+v+'</button>';
   });
   h += '<button class="gear" onclick="toggleData()">DATA</button>';
@@ -208,6 +208,7 @@ function render() {
   if (view==="plan") h += renderPlan(currentWeek());
   if (view==="chart") h += renderChart();
   if (view==="metrics") h += renderMetrics();
+  if (view==="kb") h += renderKB();
   h += '</div>';
 
   if (logDate) h += renderLog();
@@ -365,6 +366,113 @@ function renderMetrics() {
   h += '<div class="card"><div style="font-size:8px;color:#eef2f6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Key Paces</div>';
   [{l:"Easy",v:"5:15-5:30/km",c:"#eef2f6"},{l:"Marathon",v:"4:29/km",c:"#ff5c35"},{l:"Tempo/LT",v:"4:05-4:15/km",c:"#ff9100"},{l:"Intervals",v:"3:50-4:05/km",c:"#4a9eff"}].forEach(function(p){ h+='<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #12161f"><span style="font-size:10px">'+p.l+'</span><span style="font-size:10px;color:'+p.c+';font-weight:600">'+p.v+'</span></div>'; });
   h += '</div>';
+  return h;
+}
+
+function renderKB() {
+  function card(t,b){ return '<div class="card"><div class="card-title">'+t+'</div>'+b+'</div>'; }
+  function dl(rows){ var s=''; rows.forEach(function(p){ s+='<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #12161f"><span style="min-width:78px;color:#3ddc84;font-weight:700;font-size:10px">'+p[0]+'</span><span style="flex:1;font-size:10px;color:#d4dce6;line-height:1.5">'+p[1]+'</span></div>'; }); return s; }
+  function p(txt){ return '<div style="font-size:10px;color:#d4dce6;line-height:1.55;margin-bottom:7px">'+txt+'</div>'; }
+  var h='';
+
+  h += card('Welcome',
+    p('Your training dashboard for the Sydney Marathon on 30 Aug 2026, goal time 3:08:59 (marathon pace 4:29/km).')
+    + p('Everything you log lives only on this device and works offline. There is no account and nothing is uploaded, so back up now and then (see Data, below).'));
+
+  h += card('The tabs',
+    dl([
+      ['PLAN','Your 18-week schedule. Expand a week, tap a day to view or log it, and rearrange days to fit your life.'],
+      ['CHART','Progress graphs: cumulative distance, easy-run heart rate, and weekly volume.'],
+      ['METRICS','Fitness numbers (VO2max, threshold pace) and your key training paces.'],
+      ['KB','This help page.'],
+      ['DATA','Green button, top right. Export for Claude, back up, restore, or reset your schedule.']
+    ]));
+
+  h += card('Top stats bar',
+    dl([
+      ['To go','Time left until race day, as weeks (W) and days (D).'],
+      ['Goal MP','Your goal marathon pace, 4:29/km, which delivers 3:08:59.'],
+      ['Total','Total kilometres logged across the plan.'],
+      ['Runs','How many runs you have logged.'],
+      ['VO2','Your most recent VO2max reading from Metrics.'],
+      ['MP%','Threshold pace as a percent of marathon pace. Marathon pace should sit comfortably below threshold; 93% or lower shows green (good aerobic headroom).']
+    ]));
+
+  h += card('Using the Plan tab',
+    p('Tap a week to expand it, then tap any day to open its detail view.')
+    + dl([
+      ['Log a run','Open a day, tap Log this run (or Edit), enter distance, pace, heart rate and notes, then Save.'],
+      ['+ log','A planned day with nothing recorded yet.'],
+      ['Mark missed','In a day with no run, tap Mark missed to record that you skipped it. The row turns red with a MISSED tag. Logging a run later clears it.'],
+      ['FAST','An easy or long run logged faster than 5:10/km, a gentle nudge that easy days may be too quick.'],
+      ['Week line','Each open week shows runs, km of the target, percent complete, and any missed count.']
+    ]));
+
+  h += card('Rearranging your week',
+    p('Your schedule varies week to week, so you can move sessions around.')
+    + dl([
+      ['Start','On the Plan tab tap REARRANGE SCHEDULE. All weeks open and a green grip button appears on each day.'],
+      ['Move','Press a grip and drag a day onto another to swap them. Drag near the top or bottom edge to auto-scroll.'],
+      ['Across weeks','You can swap days between different weeks, not just within one week. Dates update automatically.'],
+      ['Race day','Race day is locked and cannot be moved.'],
+      ['Finish','Tap DONE. Your arrangement is saved on this device.'],
+      ['Undo all','Data tab, then Reset schedule to default. Your runs and missed flags are kept.']
+    ]));
+
+  var phases=[['Base','#4a9eff','Build the aerobic foundation with mostly easy volume.'],['Build','#3ddc84','Add quality: intervals, tempo and marathon-pace work.'],['Peak','#ff9100','Highest volume and the hardest sessions.'],['Reduced','#b388ff','A lighter week to absorb the training.'],['Sharpen','#ffd600','Race-specific tune-up as volume eases.'],['Taper','#ff4081','Cut volume right back to arrive fresh on race day.']];
+  var pb=''; phases.forEach(function(x){ pb+='<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid #12161f"><span style="min-width:78px"><span class="phase-tag" style="background:'+x[1]+'22;color:'+x[1]+'">'+x[0]+'</span></span><span style="flex:1;font-size:10px;color:#d4dce6;line-height:1.5">'+x[2]+'</span></div>'; });
+  h += card('Training phases', pb);
+
+  h += card('Workout shorthand',
+    dl([
+      ['w/u','Warm-up: easy jogging before the hard part of a session.'],
+      ['w/d','Warm-down (cool-down): easy jogging after the hard part.'],
+      ['@','At this pace. 6x1km @ 3:58 means each kilometre at 3:58/km.'],
+      ['MP','Marathon Pace, your goal race pace (4:29/km).'],
+      ['LT','Lactate Threshold, the fastest pace you can hold for about an hour. The tempo zone.'],
+      ['Strides','Short relaxed fast bursts, about 80m, to sharpen leg speed. Not sprints.'],
+      ['Fartlek','Speed play: alternating harder and easier efforts, often by feel.'],
+      ['Tempo','A sustained run at threshold effort, comfortably hard.'],
+      ['Intervals','Repeated hard reps with an easy jog recovery between each.'],
+      ['Cruise intervals','Threshold reps (eg 3x8min) with short jog recoveries.'],
+      ['jog (90s)','The easy recovery jog taken between hard reps.'],
+      ['Negative split','Running the second half of a run faster than the first.'],
+      ['HR','Heart rate, in beats per minute.']
+    ]));
+
+  h += card('Pace zones',
+    dl([
+      ['Easy','5:15 to 5:30/km, conversational.'],
+      ['Marathon','4:29/km, your goal race pace.'],
+      ['Tempo / LT','4:05 to 4:15/km, comfortably hard.'],
+      ['Intervals','3:50 to 4:05/km, hard reps.']
+    ]));
+
+  h += card('Charts tab',
+    dl([
+      ['Cumulative KM','Your running total (green) against the planned total (dashed).'],
+      ['Easy-Run HR','Average heart rate on easy runs of 7km or more. Trending down suggests improving fitness.'],
+      ['Weekly Volume','Planned km (grey) versus actual km (coloured) for each week.']
+    ]));
+
+  h += card('Metrics tab',
+    p('Track fitness over time and see your key paces.')
+    + dl([
+      ['VO2max','Aerobic capacity. Add readings as you get them.'],
+      ['LT Pace','Your lactate-threshold pace, eg 4:08/km.'],
+      ['MP/LT','Marathon pace as a percent of threshold; 93% or lower is comfortable.'],
+      ['Add reading','Enter a date, VO2max, LT pace and LT heart rate. The plan week is worked out from the date, and a new reading replaces any earlier one for that week.']
+    ]));
+
+  h += card('Data, backups and Claude',
+    dl([
+      ['Summary for Claude','Copies a readable summary of your log and missed sessions. Paste it into a Claude chat to sync and get analysis.'],
+      ['Copy backup','Copies everything (runs, metrics, schedule, missed flags) as JSON. Save it somewhere safe periodically so you never lose your log.'],
+      ['Import / Restore','Paste your seed data or a backup into the box and tap Import.'],
+      ['Reset schedule','Returns the day order to the default plan. Runs and missed flags are not affected.']
+    ]));
+
+  h += '<div style="text-align:center;font-size:9px;color:#5a6573;padding:6px 0 4px">Sydney Marathon 3:08:59 dashboard</div>';
   return h;
 }
 
