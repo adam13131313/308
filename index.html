@@ -147,6 +147,7 @@ function ltPct(ltPace) {
   return Math.round((ltSec / GOAL_PACE_SEC) * 1000) / 10;
 }
 function latestMetric() { return metrics.length ? metrics[metrics.length-1] : null; }
+function fmtPace(sec) { var m=Math.floor(sec/60), s=sec%60; return m+":"+("0"+s).slice(-2); }
 
 // ============================================================
 // RENDER
@@ -172,6 +173,7 @@ function render() {
   var toGo = days > 0 ? (Math.floor(days/7) + "W" + (days%7) + "D") : "0";
   var stats = [
     {l:"To go", v:toGo, c:"#ff5c35"},
+    {l:"Goal MP", v:fmtPace(GOAL_PACE_SEC), c:"#ff5c35"},
     {l:"Total", v:totalKm+"km", c:"#ffffff"},
     {l:"Runs", v:totalRuns, c:"#ffffff"},
     {l:"VO2", v:lm?lm.vo2:"-", c:"#4a9eff"},

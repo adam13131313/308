@@ -1,0 +1,7 @@
+# Local working files (not part of the deployed app)
+files.zip
+extracted/
+.claude/
+
+# Personal data — never commit
+seed-data.json
