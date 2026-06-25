@@ -216,6 +216,10 @@ function render() {
   if (dataPanel) h += renderDataPanel();
 
   document.getElementById("app").innerHTML = h;
+  if (rearrange) {
+    var _rb=document.querySelector('.rearrange-bar'), _hd=document.querySelector('.header');
+    if (_rb && _hd) { _rb.style.position='sticky'; _rb.style.top=_hd.offsetHeight+'px'; _rb.style.zIndex='9'; }
+  }
 }
 
 function renderPlan(cw) {
@@ -223,17 +227,18 @@ function renderPlan(cw) {
   h += '<div class="rearrange-bar'+(rearrange?'':' off')+'" onclick="toggleRearrange()">'
      + (rearrange ? '✓ DONE — drag the ⠿ handle to swap any two days (across weeks too)' : '↕ REARRANGE SCHEDULE')
      + '</div>';
+  var openFrom = Math.max(0, Math.min(PLAN_DATA.length-1, cw));
   PLAN_DATA.forEach(function(wk, wi){
     var st = weekKm(wi);
     var pct = st.km>0 ? Math.round(st.km/wk.planned*100) : 0;
     var ps = PHASE[wk.phase] || PHASE.Base;
     var pctColor = pct>=95?"#3ddc84":pct>=80?"#ff9100":"#ff5c35";
-    var isOpen = rearrange ? true : (openWeek===wi);
+    var isOpen = rearrange ? (wi >= openFrom) : (openWeek===wi);
     var isCur = wi===cw;
     var cls = "week-head" + (isOpen?" open":"") + (isCur&&!isOpen?" current":"");
     var border = isOpen ? "border-color:"+ps.c+"44;" : "";
     var headClick = rearrange ? '' : ' onclick="toggleWeek('+wi+')"';
-    h += '<div class="'+cls+'" style="'+border+'"'+headClick+'>';
+    h += '<div id="wk'+wi+'" class="'+cls+'" style="'+border+'"'+headClick+'>';
     h += '<span style="color:'+(isCur?ps.c:"#eef2f6")+';font-size:10px;min-width:24px;font-weight:700">W'+wk.week+'</span>';
     h += '<span class="phase-tag" style="background:'+ps.bg+';color:'+ps.c+'">'+wk.phase+'</span>';
     if (isCur) h += '<span style="font-size:8px;color:'+ps.c+'">NOW</span>';
@@ -560,7 +565,21 @@ function saveLog(){
 }
 function deleteRun(){ if(runs[logDate]){ delete runs[logDate]; saveRuns(); } logDate=null; render(); }
 
-function toggleRearrange(){ rearrange=!rearrange; logDate=null; detailDate=null; dataPanel=false; render(); }
+function toggleRearrange(){
+  rearrange=!rearrange; logDate=null; detailDate=null; dataPanel=false;
+  var cw=Math.max(0,Math.min(PLAN_DATA.length-1,currentWeek()));
+  if(!rearrange) openWeek=cw;   // leave the current week open after finishing
+  render();
+  scrollToWeek(cw);
+}
+function scrollToWeek(wi){
+  var el=document.getElementById('wk'+wi); if(!el) return;
+  var hdr=document.querySelector('.header');
+  var hh=hdr?hdr.offsetHeight:110;
+  if(rearrange){ var rb=document.querySelector('.rearrange-bar'); if(rb) hh+=rb.offsetHeight; }
+  var top=el.getBoundingClientRect().top + window.pageYOffset - hh - 6;
+  window.scrollTo(0, top<0?0:top);
+}
 function markMissed(){ if(detailDate){ missed[detailDate]=true; saveMissed(); } render(); }
 function unmarkMissed(){ if(detailDate){ delete missed[detailDate]; saveMissed(); } render(); }
 function resetPlan(){
