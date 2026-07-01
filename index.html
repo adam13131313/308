@@ -150,10 +150,13 @@ function dateKey(wi, di) {
   return d.getFullYear() + "-" + ("0"+(d.getMonth()+1)).slice(-2) + "-" + ("0"+d.getDate()).slice(-2);
 }
 function paceToSec(p) {
-  if (!p) return null;
-  var x = (""+p).split(":");
+  if (!p && p !== 0) return null;
+  if (typeof p === 'number') return p;
+  var x = (""+p).trim().split(":");
   if (x.length !== 2) return null;
-  return parseInt(x[0])*60 + parseInt(x[1]);
+  var m = parseInt(x[0]), s = parseInt(x[1]);
+  if (isNaN(m) || isNaN(s)) return null;
+  return m*60 + s;
 }
 function isEasy(s) { return s && (s.indexOf("Easy")===0 || s.indexOf("Long Run")===0 || s.indexOf("Shakeout")===0); }
 function weekKm(wi) {
@@ -165,10 +168,11 @@ function currentWeek() { return Math.floor((new Date() - new Date(2026,3,27)) / 
 function esc(s){ return (""+(s||"")).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function ltPct(ltPace) {
   var ltSec = paceToSec(ltPace);
-  if (!ltSec) return null;
+  if (!ltSec || isNaN(ltSec)) return null;
   // % of LT speed = (LT pace sec / goal pace sec) since speed is inverse of pace
   return Math.round((ltSec / GOAL_PACE_SEC) * 1000) / 10;
 }
+function fmtPct(p) { return (p !== null && p !== undefined) ? p + "%" : "-"; }
 function latestMetric() { return metrics.length ? metrics[metrics.length-1] : null; }
 function fmtPace(sec) { var m=Math.floor(sec/60), s=sec%60; return m+":"+("0"+s).slice(-2); }
 
@@ -350,15 +354,16 @@ function renderMetrics() {
     var cards = [
       {l:"VO2max",v:lm.vo2,c:"#4a9eff"},
       {l:"LT Pace",v:lm.lt+"/km",c:"#3ddc84"},
-      {l:"MP/LT",v:pct+"%",c:(pct<=93)?"#3ddc84":"#ff9100"},
+      {l:"MP/LT",v:fmtPct(pct),c:(pct!==null&&pct<=93)?"#3ddc84":"#ff9100"},
     ];
     h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">';
     cards.forEach(function(m){ h+='<div class="card" style="margin:0;padding:10px"><div style="font-size:8px;color:#eef2f6;text-transform:uppercase;letter-spacing:0.5px">'+m.l+'</div><div style="font-size:16px;font-weight:700;color:'+m.c+';margin:3px 0">'+m.v+'</div></div>'; });
     h += '</div>';
 
     h += '<div class="card"><div style="font-size:8px;color:#eef2f6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">LT to Marathon Pace Headroom</div>';
-    metrics.forEach(function(m){ var p=ltPct(m.lt); var bc=(p<=93)?"#3ddc84":"#ff9100";
-      h+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px"><span style="font-size:8px;color:#eef2f6;min-width:30px">Wk'+m.week+'</span><div style="flex:1;height:16px;background:#0a0e14;border-radius:3px;position:relative;overflow:hidden"><div style="position:absolute;left:0;top:0;bottom:0;width:'+((100-p)*3)+'%;background:'+bc+'33;border-radius:3px"></div><div style="position:absolute;left:6px;top:50%;transform:translateY(-50%);font-size:9px;font-weight:600">'+m.lt+'/km'+(m.ltHr?(" @ "+m.ltHr+"bpm"):"")+' - '+p+'%</div></div><span style="font-size:9px;font-weight:700;color:'+bc+'">'+(p<=93?"OK":"--")+'</span></div>'; });
+    metrics.forEach(function(m){ var p=ltPct(m.lt); var bc=(p!==null&&p<=93)?"#3ddc84":"#ff9100";
+      var barW = p!==null ? ((100-p)*3) : 0;
+      h+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px"><span style="font-size:8px;color:#eef2f6;min-width:30px">Wk'+m.week+'</span><div style="flex:1;height:16px;background:#0a0e14;border-radius:3px;position:relative;overflow:hidden"><div style="position:absolute;left:0;top:0;bottom:0;width:'+barW+'%;background:'+bc+'33;border-radius:3px"></div><div style="position:absolute;left:6px;top:50%;transform:translateY(-50%);font-size:9px;font-weight:600">'+m.lt+'/km'+(m.ltHr?(" @ "+m.ltHr+"bpm"):"")+' - '+fmtPct(p)+'</div></div><span style="font-size:9px;font-weight:700;color:'+bc+'">'+(p!==null&&p<=93?"OK":"--")+'</span></div>'; });
     h += '</div>';
   } else {
     h += '<div class="empty">No fitness metrics yet.<br>Add your VO2max and LT below.</div>';
@@ -745,7 +750,7 @@ function exportSummary(){
   var out="SYDNEY MARATHON - LOG EXPORT\n";
   out+="Generated: "+now.getDate()+" "+mn[now.getMonth()]+" "+now.getFullYear()+"\n";
   out+="Total: "+totalKm+"km / "+totalRuns+" runs";
-  if(lm) out+=" | VO2 "+lm.vo2+" | LT "+lm.lt+" | MP/LT "+ltPct(lm.lt)+"%";
+  if(lm) out+=" | VO2 "+lm.vo2+" | LT "+lm.lt+" | MP/LT "+fmtPct(ltPct(lm.lt));
   out+="\n------------------------------------\n";
   Object.keys(runs).sort().forEach(function(key){
     var r=runs[key]; if(!r.km) return;
