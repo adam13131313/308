@@ -1,12 +1,24 @@
 -- ============================================================
 -- Sydney Marathon sync schema
 --
--- One-time setup: paste this whole file into the Supabase SQL
--- editor (Project -> SQL Editor -> New query) and run it once.
+-- Lives entirely in its own "marathon" Postgres schema so it can be
+-- dropped into ANY existing Supabase project alongside other apps'
+-- tables, with zero naming collisions and no new project needed.
+--
+-- One-time setup:
+-- 1. Paste this whole file into the Supabase SQL editor (of whichever
+--    existing project you want to use) and run it once.
+-- 2. In the dashboard: Project Settings -> API -> Data API settings ->
+--    "Exposed schemas" -> add "marathon" (it only lists "public" by
+--    default). Without this step the REST API can't see these tables
+--    even though the SQL below runs successfully.
+--
 -- Single-user-per-account model, scoped by auth.uid() via RLS.
 -- ============================================================
 
-create table public.runs (
+create schema if not exists marathon;
+
+create table marathon.runs (
   user_id    uuid not null references auth.users(id) on delete cascade,
   date       date not null,
   km         numeric,
@@ -19,7 +31,7 @@ create table public.runs (
   primary key (user_id, date)
 );
 
-create table public.metrics (
+create table marathon.metrics (
   user_id    uuid not null references auth.users(id) on delete cascade,
   week       integer not null,
   vo2        integer,
@@ -29,13 +41,13 @@ create table public.metrics (
   primary key (user_id, week)
 );
 
-create table public.plan (
+create table marathon.plan (
   user_id    uuid primary key references auth.users(id) on delete cascade,
   sessions   jsonb not null,       -- the full 18x7 planSessions grid
   updated_at timestamptz not null default now()
 );
 
-create or replace function public.set_updated_at()
+create or replace function marathon.set_updated_at()
 returns trigger language plpgsql as $$
 begin
   new.updated_at = now();
@@ -43,16 +55,21 @@ begin
 end;
 $$;
 
-create trigger runs_set_updated_at    before update on public.runs    for each row execute function public.set_updated_at();
-create trigger metrics_set_updated_at before update on public.metrics for each row execute function public.set_updated_at();
-create trigger plan_set_updated_at    before update on public.plan    for each row execute function public.set_updated_at();
+create trigger runs_set_updated_at    before update on marathon.runs    for each row execute function marathon.set_updated_at();
+create trigger metrics_set_updated_at before update on marathon.metrics for each row execute function marathon.set_updated_at();
+create trigger plan_set_updated_at    before update on marathon.plan    for each row execute function marathon.set_updated_at();
 
-alter table public.runs    enable row level security;
-alter table public.metrics enable row level security;
-alter table public.plan    enable row level security;
+alter table marathon.runs    enable row level security;
+alter table marathon.metrics enable row level security;
+alter table marathon.plan    enable row level security;
 
-create policy "runs_owner_all"    on public.runs    for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "metrics_owner_all" on public.metrics for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "plan_owner_all"    on public.plan    for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "runs_owner_all"    on marathon.runs    for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "metrics_owner_all" on marathon.metrics for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "plan_owner_all"    on marathon.plan    for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
-alter publication supabase_realtime add table public.runs, public.metrics, public.plan;
+-- custom schemas aren't reachable by PostgREST's api roles by default -
+-- RLS above still governs row access, this just allows the attempt
+grant usage on schema marathon to anon, authenticated;
+grant all on all tables in schema marathon to anon, authenticated;
+
+alter publication supabase_realtime add table marathon.runs, marathon.metrics, marathon.plan;

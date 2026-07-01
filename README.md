@@ -21,7 +21,9 @@ is in `seed-data.json`, which is gitignored and never committed.
   Supabase project URL + anon key - that key is safe to be public, access
   is enforced by row-level security, not by keeping the key secret.
 - `supabase/schema.sql` - one-time database setup (tables, RLS policies,
-  realtime publication). Paste into the Supabase SQL editor once per project.
+  realtime publication). Lives in its own `marathon` Postgres schema so it
+  can be pasted into an existing Supabase project alongside other apps'
+  tables, with no naming collisions and no new project needed.
 - `manifest.json` - PWA manifest
 - `service-worker.js` - offline caching
 - `icon-192.png`, `icon-512.png` - app icons
@@ -31,14 +33,20 @@ is in `seed-data.json`, which is gitignored and never committed.
 GitHub Pages already serves `index.html` as both the "web version" (visit
 the URL in any browser) and the "phone app" (Add to Home Screen installs
 the same page as a PWA) - they're the same code. To keep both in sync:
-1. Create a free project at supabase.com, run `supabase/schema.sql` in its
-   SQL editor, then fill in `SUPABASE_URL` / `SUPABASE_ANON_KEY` near the
-   top of `index.html`'s script.
-2. Open the app, tap DATA, enter your email under ACCOUNT, then enter the
+1. Pick any Supabase project you already have (or create a free one), run
+   `supabase/schema.sql` in its SQL editor, then in the dashboard go to
+   Project Settings -> API -> Data API settings -> "Exposed schemas" and
+   add `marathon` (it only lists `public` by default - without this the
+   REST API can't reach these tables even though the SQL succeeded).
+2. Fill in `SUPABASE_URL` / `SUPABASE_ANON_KEY` near the top of
+   `index.html`'s script.
+3. Open the app, tap DATA, enter your email under ACCOUNT, then enter the
    6-digit code emailed to you. This is a one-time step per device/install.
-3. Once signed in on two devices, edits sync automatically (with realtime
+4. Once signed in on two devices, edits sync automatically (with realtime
    push, no manual refresh needed) using last-write-wins per record.
-This is a single personal account, not a shared/multi-user service.
+This is a single personal account, not a shared/multi-user service. Its
+tables live entirely in a `marathon` schema, isolated from anything else
+in that Supabase project.
 
 ## Hosting: GitHub Pages
 1. Push these files (NOT seed-data.json - it is gitignored) to the repo root.

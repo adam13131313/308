@@ -115,7 +115,7 @@ var MISSED_KEY = "sydney-marathon-missed";
 // ============================================================
 var SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";       // TODO: fill in from your Supabase project settings
 var SUPABASE_ANON_KEY = "YOUR-ANON-KEY";                     // TODO: fill in (safe to be public - RLS enforces access)
-var sb = (window.supabase && SUPABASE_URL.indexOf("YOUR-PROJECT") === -1) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+var sb = (window.supabase && SUPABASE_URL.indexOf("YOUR-PROJECT") === -1) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { db: { schema: "marathon" } }) : null;
 var syncUser = null;
 var syncState = "idle"; // idle | syncing | synced | error | signed-out
 var SYNC_COLORS = { idle:"#9aa4b4", syncing:"#ffd600", synced:"#3ddc84", error:"#ff4d4d", "signed-out":"#9aa4b4" };
@@ -926,9 +926,9 @@ function pullAndMerge() {
 function subscribeRealtime() {
   if (!sb || !syncUser) return;
   sb.channel("sync-"+syncUser.id)
-    .on("postgres_changes", { event:"*", schema:"public", table:"runs", filter:"user_id=eq."+syncUser.id }, handleRealtimeRuns)
-    .on("postgres_changes", { event:"*", schema:"public", table:"metrics", filter:"user_id=eq."+syncUser.id }, handleRealtimeMetrics)
-    .on("postgres_changes", { event:"*", schema:"public", table:"plan", filter:"user_id=eq."+syncUser.id }, handleRealtimePlan)
+    .on("postgres_changes", { event:"*", schema:"marathon", table:"runs", filter:"user_id=eq."+syncUser.id }, handleRealtimeRuns)
+    .on("postgres_changes", { event:"*", schema:"marathon", table:"metrics", filter:"user_id=eq."+syncUser.id }, handleRealtimeMetrics)
+    .on("postgres_changes", { event:"*", schema:"marathon", table:"plan", filter:"user_id=eq."+syncUser.id }, handleRealtimePlan)
     .subscribe();
 }
 function handleRealtimeRuns(payload) {
