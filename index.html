@@ -71,6 +71,7 @@
 </head>
 <body>
 <div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 // ============================================================
 // TRAINING PLAN (methodology, not personal data)
@@ -110,6 +111,17 @@ var PLAN_KEY = "sydney-marathon-plan";
 var MISSED_KEY = "sydney-marathon-missed";
 
 // ============================================================
+// SYNC - optional Supabase account, off by default until signed in
+// ============================================================
+var SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";       // TODO: fill in from your Supabase project settings
+var SUPABASE_ANON_KEY = "YOUR-ANON-KEY";                     // TODO: fill in (safe to be public - RLS enforces access)
+var sb = (window.supabase && SUPABASE_URL.indexOf("YOUR-PROJECT") === -1) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+var syncUser = null;
+var syncState = "idle"; // idle | syncing | synced | error | signed-out
+var SYNC_COLORS = { idle:"#9aa4b4", syncing:"#ffd600", synced:"#3ddc84", error:"#ff4d4d", "signed-out":"#9aa4b4" };
+var SYNC_LABELS = { idle:"Sync idle", syncing:"Syncing…", synced:"Synced", error:"Sync error — offline?", "signed-out":"Not signed in" };
+
+// ============================================================
 // STATE - personal data loaded from localStorage only
 // ============================================================
 var runs = {};
@@ -141,6 +153,32 @@ function saveRuns() { try { localStorage.setItem(RUNS_KEY, JSON.stringify(runs))
 function saveMetrics() { try { localStorage.setItem(METRICS_KEY, JSON.stringify(metrics)); } catch(e) {} }
 function saveMissed() { try { localStorage.setItem(MISSED_KEY, JSON.stringify(missed)); } catch(e) {} }
 function savePlan() { try { localStorage.setItem(PLAN_KEY, JSON.stringify(planSessions)); } catch(e) {} }
+
+// ---- fire-and-forget sync to Supabase; never blocks the UI, never throws into callers ----
+function syncPush(table, row) {
+  if (!sb || !syncUser) return;
+  row.user_id = syncUser.id;
+  sb.from(table).upsert(row).then(function(res){ if (res.error) console.warn("sync push failed", table, res.error); });
+}
+function syncDelete(table, match) {
+  if (!sb || !syncUser) return;
+  match.user_id = syncUser.id;
+  sb.from(table).delete().match(match).then(function(res){ if (res.error) console.warn("sync delete failed", table, res.error); });
+}
+function syncPushAll() {
+  if (!sb || !syncUser) return;
+  var runRows = Object.keys(runs).map(function(d){
+    var r = runs[d];
+    return { user_id: syncUser.id, date: d, km: r.km||null, pace: r.pace||null, hr: r.hr||null, note: r.note||null, missed: !!missed[d], source: r.source||"manual" };
+  });
+  Object.keys(missed).forEach(function(d){
+    if (!runs[d]) runRows.push({ user_id: syncUser.id, date: d, missed: true, source: "manual" });
+  });
+  if (runRows.length) sb.from("runs").upsert(runRows).then(function(res){ if (res.error) console.warn("sync import runs failed", res.error); });
+  var metricRows = metrics.map(function(m){ return { user_id: syncUser.id, week: m.week, vo2: m.vo2||null, lt: m.lt, lt_hr: m.ltHr||null }; });
+  if (metricRows.length) sb.from("metrics").upsert(metricRows).then(function(res){ if (res.error) console.warn("sync import metrics failed", res.error); });
+  syncPush("plan", { sessions: planSessions });
+}
 
 // ============================================================
 // HELPERS
@@ -194,6 +232,7 @@ function render() {
   ["plan","chart","metrics","kb"].forEach(function(v){
     h += '<button class="'+(view===v?'active':'')+'" onclick="setView(\''+v+'\')">'+v+'</button>';
   });
+  h += '<span id="sync-dot" title="'+(SYNC_LABELS[syncState]||"")+'" style="width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:6px;background:'+(SYNC_COLORS[syncState]||SYNC_COLORS.idle)+';align-self:center"></span>';
   h += '<button class="gear" onclick="toggleData()">DATA</button>';
   h += '</div></div>';
 
@@ -545,6 +584,19 @@ function renderDetail() {
 function renderDataPanel() {
   var h = '<div class="modal-bg" onclick="closeData()"></div><div class="modal">';
   h += '<div style="font-size:11px;font-weight:700;margin-bottom:8px">Data</div>';
+  h += '<div style="font-size:9px;color:#eef2f6;margin-bottom:4px">ACCOUNT ('+(SYNC_LABELS[syncState]||"")+')</div>';
+  if (!sb) {
+    h += '<div style="font-size:9px;color:#9aa4b4;margin-bottom:12px">Sync not configured yet.</div>';
+  } else if (syncUser) {
+    h += '<div style="font-size:9px;color:#9aa4b4;margin-bottom:6px">Signed in as '+esc(syncUser.email)+'</div>';
+    h += '<button class="btn-cancel" style="width:100%;margin-bottom:12px" onclick="signOut()">Sign out</button>';
+  } else if (otpEmail) {
+    h += '<input id="acct-code" inputmode="numeric" placeholder="6-digit code from email" style="margin-bottom:6px">';
+    h += '<button class="btn-save" style="width:100%;margin-bottom:12px" onclick="verifyOtp()">Verify code</button>';
+  } else {
+    h += '<input id="acct-email" placeholder="you@example.com" style="margin-bottom:6px">';
+    h += '<button class="btn-save" style="width:100%;margin-bottom:12px" onclick="sendOtp()">Sign in / sync across devices</button>';
+  }
   h += '<div style="font-size:9px;color:#eef2f6;margin-bottom:4px">EXPORT for Claude (paste into chat)</div>';
   h += '<button class="btn-save" style="margin-bottom:12px" onclick="exportSummary()">Copy summary for Claude</button>';
   h += '<div style="font-size:9px;color:#eef2f6;margin-bottom:4px">BACKUP all data</div>';
@@ -587,9 +639,11 @@ function saveLog(){
   if(!km){ closeLog(); return; }
   runs[logDate]={ km:km, pace:document.getElementById("f-pace").value, hr:document.getElementById("f-hr").value?parseInt(document.getElementById("f-hr").value):null, note:document.getElementById("f-note").value };
   if (missed[logDate]) { delete missed[logDate]; saveMissed(); }
-  saveRuns(); logDate=null; render();
+  saveRuns();
+  syncPush("runs", { date:logDate, km:runs[logDate].km, pace:runs[logDate].pace, hr:runs[logDate].hr, note:runs[logDate].note, missed:false, source:"manual" });
+  logDate=null; render();
 }
-function deleteRun(){ if(runs[logDate]){ delete runs[logDate]; saveRuns(); } logDate=null; render(); }
+function deleteRun(){ if(runs[logDate]){ delete runs[logDate]; saveRuns(); syncDelete("runs", {date:logDate}); } logDate=null; render(); }
 
 function toggleRearrange(){
   rearrange=!rearrange; logDate=null; detailDate=null; dataPanel=false;
@@ -606,11 +660,11 @@ function scrollToWeek(wi){
   var top=el.getBoundingClientRect().top + window.pageYOffset - hh - 6;
   window.scrollTo(0, top<0?0:top);
 }
-function markMissed(){ if(detailDate){ missed[detailDate]=true; saveMissed(); } render(); }
-function unmarkMissed(){ if(detailDate){ delete missed[detailDate]; saveMissed(); } render(); }
+function markMissed(){ if(detailDate){ missed[detailDate]=true; saveMissed(); syncPush("runs", {date:detailDate, missed:true, source:"manual"}); } render(); }
+function unmarkMissed(){ if(detailDate){ delete missed[detailDate]; saveMissed(); syncPush("runs", {date:detailDate, missed:false, source:"manual"}); } render(); }
 function resetPlan(){
   if(!confirm("Reset all schedule rearrangements back to the default plan?\n\nYour logged runs and missed flags are NOT affected.")) return;
-  planSessions=clonePlan(); savePlan(); dataPanel=false; showToast("Schedule reset to default"); render();
+  planSessions=clonePlan(); savePlan(); syncPush("plan", {sessions:planSessions}); dataPanel=false; showToast("Schedule reset to default"); render();
 }
 
 // ---- drag to rearrange: swaps the contents of two day cells (any weeks) ----
@@ -663,6 +717,7 @@ function onPointerUp(){
     planSessions[drag.fromW][drag.fromD]=planSessions[tw][td];
     planSessions[tw][td]=a;
     savePlan();
+    syncPush("plan", {sessions:planSessions});
   }
   drag=null; render();
 }
@@ -686,7 +741,9 @@ function addMetric(){
   metrics=metrics.filter(function(m){ return m.week!==wk; });
   metrics.push({ week:wk, vo2:vo2||null, lt:lt, ltHr:ltHr||null });
   metrics.sort(function(a,b){ return a.week-b.week; });
-  saveMetrics(); render();
+  saveMetrics();
+  syncPush("metrics", {week:wk, vo2:vo2||null, lt:lt, lt_hr:ltHr||null});
+  render();
   showToast("Added reading for week "+wk);
 }
 
@@ -730,6 +787,7 @@ function importJson(){
   if(obj.missed) missed=obj.missed;
   if(obj.plan && Array.isArray(obj.plan) && obj.plan.length===PLAN_DATA.length) planSessions=obj.plan;
   saveRuns(); saveMetrics(); saveMissed(); savePlan();
+  syncPushAll();
   showToast("Imported!");
   dataPanel=false; render();
 }
@@ -791,10 +849,158 @@ function showToast(msg){
 }
 
 // ============================================================
+// SYNC - account, boot-time pull/merge, realtime
+// ============================================================
+function renderSyncStatus(state) {
+  syncState = state;
+  var el = document.getElementById("sync-dot");
+  if (!el) return;
+  el.style.background = SYNC_COLORS[state] || SYNC_COLORS.idle;
+  el.title = SYNC_LABELS[state] || "";
+}
+
+function initSync() {
+  if (!sb) { renderSyncStatus("signed-out"); return; }
+  sb.auth.getSession().then(function(res){
+    var session = res.data && res.data.session;
+    if (!session) { renderSyncStatus("signed-out"); return; }
+    syncUser = session.user;
+    render(); // re-render so the account panel reflects signed-in state
+    pullAndMerge();
+    subscribeRealtime();
+  }).catch(function(){ renderSyncStatus("error"); });
+}
+
+function pullAndMerge() {
+  if (!sb || !syncUser) return;
+  renderSyncStatus("syncing");
+  Promise.all([
+    sb.from("runs").select("*").eq("user_id", syncUser.id),
+    sb.from("metrics").select("*").eq("user_id", syncUser.id),
+    sb.from("plan").select("*").eq("user_id", syncUser.id).maybeSingle()
+  ]).then(function(results){
+    var runsRes = results[0], metricsRes = results[1], planRes = results[2];
+    var changed = false;
+    if (!runsRes.error && Array.isArray(runsRes.data)) {
+      runsRes.data.forEach(function(row){
+        if (!row || !row.date) return; // guard malformed row
+        var local = runs[row.date];
+        var remoteNewer = !local || !local._syncedAt || new Date(row.updated_at) > new Date(local._syncedAt);
+        if (remoteNewer) {
+          if (row.km != null || row.pace || row.hr != null || row.note) {
+            runs[row.date] = { km: row.km, pace: row.pace, hr: row.hr, note: row.note, source: row.source, _syncedAt: row.updated_at };
+          } else {
+            delete runs[row.date];
+          }
+          if (row.missed) missed[row.date] = true; else delete missed[row.date];
+          changed = true;
+        }
+      });
+      saveRuns(); saveMissed();
+    }
+    if (!metricsRes.error && Array.isArray(metricsRes.data)) {
+      metricsRes.data.forEach(function(row){
+        if (!row || typeof row.week !== "number") return; // guard malformed row
+        var idx = metrics.findIndex(function(m){ return m.week === row.week; });
+        var local = idx>=0 ? metrics[idx] : null;
+        var remoteNewer = !local || !local._syncedAt || new Date(row.updated_at) > new Date(local._syncedAt);
+        if (remoteNewer) {
+          var merged = { week: row.week, vo2: row.vo2, lt: row.lt, ltHr: row.lt_hr, _syncedAt: row.updated_at };
+          if (idx>=0) metrics[idx] = merged; else metrics.push(merged);
+          changed = true;
+        }
+      });
+      metrics.sort(function(a,b){ return a.week-b.week; });
+      saveMetrics();
+    }
+    if (!planRes.error && planRes.data && Array.isArray(planRes.data.sessions) && planRes.data.sessions.length === PLAN_DATA.length) {
+      planSessions = planRes.data.sessions;
+      savePlan();
+      changed = true;
+    }
+    renderSyncStatus(runsRes.error || metricsRes.error ? "error" : "synced");
+    if (changed) render();
+  }).catch(function(){ renderSyncStatus("error"); });
+}
+
+function subscribeRealtime() {
+  if (!sb || !syncUser) return;
+  sb.channel("sync-"+syncUser.id)
+    .on("postgres_changes", { event:"*", schema:"public", table:"runs", filter:"user_id=eq."+syncUser.id }, handleRealtimeRuns)
+    .on("postgres_changes", { event:"*", schema:"public", table:"metrics", filter:"user_id=eq."+syncUser.id }, handleRealtimeMetrics)
+    .on("postgres_changes", { event:"*", schema:"public", table:"plan", filter:"user_id=eq."+syncUser.id }, handleRealtimePlan)
+    .subscribe();
+}
+function handleRealtimeRuns(payload) {
+  var row = payload.new && Object.keys(payload.new).length ? payload.new : payload.old;
+  if (!row || !row.date) return; // guard malformed payload
+  if (payload.eventType === "DELETE") { delete runs[row.date]; delete missed[row.date]; }
+  else {
+    if (row.km != null || row.pace || row.hr != null || row.note) {
+      runs[row.date] = { km: row.km, pace: row.pace, hr: row.hr, note: row.note, source: row.source, _syncedAt: row.updated_at };
+    } else delete runs[row.date];
+    if (row.missed) missed[row.date] = true; else delete missed[row.date];
+  }
+  saveRuns(); saveMissed(); render();
+}
+function handleRealtimeMetrics(payload) {
+  var row = payload.new && Object.keys(payload.new).length ? payload.new : payload.old;
+  if (!row || typeof row.week !== "number") return; // guard malformed payload
+  if (payload.eventType === "DELETE") {
+    metrics = metrics.filter(function(m){ return m.week !== row.week; });
+  } else {
+    var idx = metrics.findIndex(function(m){ return m.week === row.week; });
+    var merged = { week: row.week, vo2: row.vo2, lt: row.lt, ltHr: row.lt_hr, _syncedAt: row.updated_at };
+    if (idx>=0) metrics[idx] = merged; else metrics.push(merged);
+  }
+  metrics.sort(function(a,b){ return a.week-b.week; });
+  saveMetrics(); render();
+}
+function handleRealtimePlan(payload) {
+  var row = payload.new && Object.keys(payload.new).length ? payload.new : payload.old;
+  if (!row || !Array.isArray(row.sessions) || row.sessions.length !== PLAN_DATA.length) return; // guard malformed payload
+  planSessions = row.sessions;
+  savePlan(); render();
+}
+
+// ---- account sign-in (OTP email code - avoids clickable-link-opens-browser-not-PWA problem) ----
+function sendOtp() {
+  if (!sb) { showToast("Sync not configured yet"); return; }
+  var email = document.getElementById("acct-email").value.trim();
+  if (!email) { showToast("Enter your email"); return; }
+  showToast("Sending code…");
+  sb.auth.signInWithOtp({ email: email }).then(function(res){
+    if (res.error) { showToast("Couldn't send code"); return; }
+    otpEmail = email;
+    dataPanel = true; render();
+    showToast("Check your email for the code");
+  });
+}
+var otpEmail = null;
+function verifyOtp() {
+  var code = document.getElementById("acct-code").value.trim();
+  if (!code || !otpEmail) { showToast("Enter the code from your email"); return; }
+  sb.auth.verifyOtp({ email: otpEmail, token: code, type: "email" }).then(function(res){
+    if (res.error || !res.data.session) { showToast("Invalid code"); return; }
+    syncUser = res.data.session.user;
+    otpEmail = null;
+    showToast("Signed in");
+    render();
+    pullAndMerge();
+    subscribeRealtime();
+  });
+}
+function signOut() {
+  if (!sb) return;
+  sb.auth.signOut().then(function(){ syncUser = null; otpEmail = null; renderSyncStatus("signed-out"); render(); showToast("Signed out"); });
+}
+
+// ============================================================
 // INIT
 // ============================================================
 loadAll();
 render();
+initSync();
 document.addEventListener('pointerdown', onPointerDown);
 if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js").catch(function(){}); }
 </script>
