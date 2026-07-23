@@ -520,7 +520,8 @@ function renderKB() {
     dl([
       ['Summary for Claude','Copies a readable summary of your log and missed sessions. Paste it into a Claude chat to sync and get analysis.'],
       ['Copy backup','Copies everything (runs, metrics, schedule, missed flags) as JSON. Save it somewhere safe periodically so you never lose your log.'],
-      ['Import / Restore','Paste your seed data or a backup into the box and tap Import.'],
+      ['Merge','Paste new runs into the box and tap Merge. It adds and updates only those dates and leaves the rest of your log, metrics and schedule alone. Use this for routine updates.'],
+      ['Replace all','Wipes your log and restores everything from a full backup. Asks for confirmation first.'],
       ['Reset schedule','Returns the day order to the default plan. Runs and missed flags are not affected.']
     ]));
 
@@ -601,9 +602,10 @@ function renderDataPanel() {
   h += '<button class="btn-save" style="margin-bottom:12px" onclick="exportSummary()">Copy summary for Claude</button>';
   h += '<div style="font-size:9px;color:#eef2f6;margin-bottom:4px">BACKUP all data</div>';
   h += '<button class="btn-cancel" style="width:100%;margin-bottom:12px" onclick="copyBackup()">Copy backup to clipboard</button>';
-  h += '<div style="font-size:9px;color:#eef2f6;margin-bottom:4px">IMPORT / RESTORE (paste JSON below)</div>';
-  h += '<textarea class="data-box" id="data-json" placeholder="Paste your seed-data.json or a backup here, then tap Import"></textarea>';
-  h += '<div class="modal-row"><button class="btn-save" onclick="importJson()">Import</button><button class="btn-cancel" onclick="closeData()">Close</button></div>';
+  h += '<div style="font-size:9px;color:#eef2f6;margin-bottom:4px">IMPORT (paste JSON below)</div>';
+  h += '<textarea class="data-box" id="data-json" placeholder="Paste new runs, a backup, or seed data here"></textarea>';
+  h += '<div style="font-size:9px;color:#9aa4b4;line-height:1.45;margin-bottom:6px">Merge adds and updates only the dates in your paste and keeps everything else. Replace all wipes your log first.</div>';
+  h += '<div class="modal-row"><button class="btn-save" onclick="mergeJson()">Merge</button><button class="btn-del" onclick="importJson()">Replace all</button><button class="btn-cancel" onclick="closeData()">Close</button></div>';
   h += '<div style="font-size:9px;color:#eef2f6;margin:12px 0 4px">SCHEDULE</div>';
   h += '<button class="btn-cancel" style="width:100%;margin-bottom:12px" onclick="resetPlan()">Reset schedule to default order</button>';
   h += '<div style="font-size:9px;color:#eef2f6;margin:0 0 4px">FEEDBACK</div>';
@@ -767,9 +769,9 @@ function createIssue(kind){
   window.open(url, "_blank", "noopener");
   showToast("Opening GitHub…");
 }
-function importJson(){
+function parseDataBox(){
   var txt=document.getElementById("data-json").value.trim();
-  if(!txt){ showToast("Paste your data first"); return; }
+  if(!txt){ showToast("Paste your data first"); return null; }
   var obj=null;
   try {
     obj=JSON.parse(txt);
@@ -781,14 +783,47 @@ function importJson(){
       try { obj=JSON.parse(txt.substring(lastOpen)); } catch(e2){ obj=null; }
     }
   }
-  if(!obj){ showToast("Invalid JSON - clear box & paste again"); return; }
+  if(!obj){ showToast("Invalid JSON - clear box & paste again"); return null; }
+  return obj;
+}
+
+// REPLACE - wipes everything and restores from a full backup
+function importJson(){
+  var obj=parseDataBox(); if(!obj) return;
+  var existing=0; for(var q in runs){ if(runs[q].km) existing++; }
+  if(existing && !confirm("REPLACE ALL data with the pasted JSON?\n\nYour "+existing+" logged runs will be deleted and replaced.\n\nUse Merge instead to keep them.")) return;
   if(obj.runs) runs=obj.runs;
   if(obj.metrics) metrics=obj.metrics;
   if(obj.missed) missed=obj.missed;
   if(obj.plan && Array.isArray(obj.plan) && obj.plan.length===PLAN_DATA.length) planSessions=obj.plan;
   saveRuns(); saveMetrics(); saveMissed(); savePlan();
   syncPushAll();
-  showToast("Imported!");
+  showToast("Replaced!");
+  dataPanel=false; render();
+}
+
+// MERGE - adds/updates only the dates in the paste, keeps everything else
+function mergeJson(){
+  var obj=parseDataBox(); if(!obj) return;
+  var added=0, updated=0;
+  if(obj.runs){
+    for(var k in obj.runs){
+      if(runs[k]) updated++; else added++;
+      runs[k]=obj.runs[k];
+    }
+  }
+  if(obj.missed){ for(var m in obj.missed){ if(obj.missed[m]) missed[m]=true; } }
+  if(obj.metrics && obj.metrics.length){
+    obj.metrics.forEach(function(nm){
+      metrics=metrics.filter(function(o){ return o.week!==nm.week; });
+      metrics.push(nm);
+    });
+    metrics.sort(function(a,b){ return a.week-b.week; });
+  }
+  if(obj.plan && Array.isArray(obj.plan) && obj.plan.length===PLAN_DATA.length) planSessions=obj.plan;
+  saveRuns(); saveMetrics(); saveMissed(); savePlan();
+  syncPushAll();
+  showToast("Merged: "+added+" new, "+updated+" updated");
   dataPanel=false; render();
 }
 function copyBackup(){
