@@ -372,9 +372,19 @@ function renderChart() {
     var hp = pts.map(function(v,i){ return (30+i*(300/(pts.length-1)))+","+(110-((v-minH)/(maxH-minH))*95); }).join(" ");
     h += '<div class="card"><div class="card-title">Easy-Run HR Trend</div><div style="font-size:8px;color:#eef2f6;margin-bottom:8px">Lower = improving fitness (runs 7km+)</div><svg viewBox="0 0 340 125">';
     [130,145,160].forEach(function(v){ var y=110-((v-minH)/(maxH-minH))*95; h+='<line x1="30" y1="'+y+'" x2="335" y2="'+y+'" stroke="#3a4452" stroke-width="0.5"/><text x="27" y="'+(y+3)+'" fill="#eef2f6" font-size="6" text-anchor="end">'+v+'</text>'; });
-    h += '<polyline fill="none" stroke="#4a9eff" stroke-width="2" points="'+hp+'"/>';
+    h += '<polyline fill="none" stroke="#4a9eff" stroke-width="1.5" opacity="0.55" points="'+hp+'"/>';
+    // least-squares regression over (index, HR)
+    var n=pts.length, sx=0, sy=0, sxy=0, sxx=0;
+    for (var i=0;i<n;i++){ sx+=i; sy+=pts[i]; sxy+=i*pts[i]; sxx+=i*i; }
+    var slope=(n*sxy - sx*sy)/(n*sxx - sx*sx), intc=(sy - slope*sx)/n;
+    function hy(v){ var c=Math.max(minH,Math.min(maxH,v)); return 110-((c-minH)/(maxH-minH))*95; }
+    h += '<line x1="30" y1="'+hy(intc)+'" x2="330" y2="'+hy(intc+slope*(n-1))+'" stroke="#ffd600" stroke-width="2" stroke-dasharray="5,3"/>';
     pts.forEach(function(v,i){ h+='<circle cx="'+(30+i*(300/(pts.length-1)))+'" cy="'+(110-((v-minH)/(maxH-minH))*95)+'" r="2.5" fill="#4a9eff"/>'; });
-    h += '</svg></div>';
+    h += '</svg>';
+    var chg=Math.round(slope*(n-1));
+    var dir = chg<0 ? '<span style="color:#3ddc84">&#8595; improving</span>' : (chg>0 ? '<span style="color:#ff9100">&#8593; rising</span>' : 'flat');
+    h += '<div style="font-size:8px;color:#eef2f6;margin-top:4px;text-align:center"><span style="color:#ffd600">— trend</span>: '+(chg<0?chg:'+'+chg)+' bpm across '+n+' easy runs · '+dir+'</div>';
+    h += '</div>';
   }
 
   h += '<div class="card"><div class="card-title">Weekly Volume</div><svg viewBox="0 0 340 110">';
@@ -503,7 +513,7 @@ function renderKB() {
   h += card('Charts tab',
     dl([
       ['Cumulative KM','Your running total (green) against the planned total (dashed).'],
-      ['Easy-Run HR','Average heart rate on easy runs of 7km or more. Trending down suggests improving fitness.'],
+      ['Easy-Run HR','Average heart rate on easy runs of 7km or more, with a dashed trend line. A downward trend suggests improving fitness.'],
       ['Weekly Volume','Planned km (grey) versus actual km (coloured) for each week.']
     ]));
 
