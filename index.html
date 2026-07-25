@@ -113,8 +113,8 @@ var MISSED_KEY = "sydney-marathon-missed";
 // ============================================================
 // SYNC - optional Supabase account, off by default until signed in
 // ============================================================
-var SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";       // TODO: fill in from your Supabase project settings
-var SUPABASE_ANON_KEY = "YOUR-ANON-KEY";                     // TODO: fill in (safe to be public - RLS enforces access)
+var SUPABASE_URL = "https://rgdtebgxiuxgqpkdrjaz.supabase.co";
+var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJnZHRlYmd4aXV4Z3Fwa2RyamF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1NjUyMjMsImV4cCI6MjEwMDE0MTIyM30.Tv3qBGZB6HPRZjWblYO1dyRLfXZdE04Pz_nCAJfIpG4";  // anon key - safe to be public; RLS enforces access
 var sb = (window.supabase && SUPABASE_URL.indexOf("YOUR-PROJECT") === -1) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { db: { schema: "marathon" } }) : null;
 var syncUser = null;
 var syncState = "idle"; // idle | syncing | synced | error | signed-out
