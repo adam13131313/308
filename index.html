@@ -116,6 +116,9 @@ var MISSED_KEY = "sydney-marathon-missed";
 var SUPABASE_URL = "https://rgdtebgxiuxgqpkdrjaz.supabase.co";
 var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJnZHRlYmd4aXV4Z3Fwa2RyamF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1NjUyMjMsImV4cCI6MjEwMDE0MTIyM30.Tv3qBGZB6HPRZjWblYO1dyRLfXZdE04Pz_nCAJfIpG4";  // anon key - safe to be public; RLS enforces access
 var sb = (window.supabase && SUPABASE_URL.indexOf("YOUR-PROJECT") === -1) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { db: { schema: "marathon" } }) : null;
+// Strava auto-sync (Garmin -> Strava -> here). Client ID is public; secret lives only in Supabase.
+var STRAVA_CLIENT_ID = "";  // TODO: set to your Strava app Client ID
+var STRAVA_CALLBACK = SUPABASE_URL + "/functions/v1/strava-callback";
 var syncUser = null;
 var syncState = "idle"; // idle | syncing | synced | error | signed-out
 var SYNC_COLORS = { idle:"#9aa4b4", syncing:"#ffd600", synced:"#3ddc84", error:"#ff4d4d", "signed-out":"#9aa4b4" };
@@ -613,6 +616,13 @@ function renderDataPanel() {
     h += '<div style="font-size:9px;color:#9aa4b4;margin-bottom:6px">Signed in as '+esc(syncUser.email)+'</div>';
     h += '<button class="btn-save" style="width:100%;margin-bottom:6px" onclick="pushAllNow()">Push this device\'s data to the cloud</button>';
     h += '<div style="font-size:8px;color:#9aa4b4;line-height:1.4;margin-bottom:6px">Do this once on the device that has your full log, to seed the cloud. Other signed-in devices then pull it automatically.</div>';
+    h += '<div style="font-size:9px;color:#eef2f6;margin-bottom:4px">STRAVA (auto-sync your Garmin runs)</div>';
+    if (STRAVA_CLIENT_ID) {
+      h += '<button class="btn-save" style="width:100%;margin-bottom:6px;background:#fc4c02;color:#fff" onclick="connectStrava()">Connect Strava</button>';
+      h += '<div style="font-size:8px;color:#9aa4b4;line-height:1.4;margin-bottom:12px">Garmin syncs to Strava automatically; this pulls those runs into 308 and keeps new ones flowing in. You can re-tap it any time to re-authorise.</div>';
+    } else {
+      h += '<div style="font-size:9px;color:#9aa4b4;margin-bottom:12px">Strava connection not set up yet.</div>';
+    }
     h += '<button class="btn-cancel" style="width:100%;margin-bottom:12px" onclick="signOut()">Sign out</button>';
   } else if (otpEmail) {
     h += '<input id="acct-code" inputmode="numeric" placeholder="6-digit code from email" style="margin-bottom:6px">';
@@ -1021,6 +1031,33 @@ function handleRealtimePlan(payload) {
   savePlan(); render();
 }
 
+// ---- Strava connect: redirect to Strava OAuth; the strava-callback edge function does the rest ----
+function connectStrava() {
+  if (!sb) { showToast("Sync not configured"); return; }
+  if (!syncUser) { showToast("Sign in first"); return; }
+  if (!STRAVA_CLIENT_ID) { showToast("Strava not set up yet"); return; }
+  sb.auth.getSession().then(function(res){
+    var s = res.data && res.data.session;
+    if (!s) { showToast("Sign in first"); return; }
+    var url = "https://www.strava.com/oauth/authorize"
+      + "?client_id=" + encodeURIComponent(STRAVA_CLIENT_ID)
+      + "&response_type=code"
+      + "&redirect_uri=" + encodeURIComponent(STRAVA_CALLBACK)
+      + "&approval_prompt=auto"
+      + "&scope=activity:read_all"
+      + "&state=" + encodeURIComponent(s.access_token);
+    window.location.href = url;
+  });
+}
+function handleStravaReturn() {
+  var q = window.location.search;
+  if (q.indexOf("strava=") === -1) return;
+  if (q.indexOf("strava=connected") > -1) showToast("Strava connected — importing runs…");
+  else if (q.indexOf("strava=error") > -1) showToast("Strava connection failed — try again");
+  // clean the URL so a refresh doesn't re-trigger
+  if (window.history && history.replaceState) history.replaceState({}, "", window.location.pathname);
+}
+
 // ---- account sign-in (OTP email code - avoids clickable-link-opens-browser-not-PWA problem) ----
 function sendOtp() {
   if (!sb) { showToast("Sync not configured yet"); return; }
@@ -1067,6 +1104,7 @@ function signOut() {
 loadAll();
 render();
 initSync();
+handleStravaReturn();
 document.addEventListener('pointerdown', onPointerDown);
 if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js").catch(function(){}); }
 </script>
